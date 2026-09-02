@@ -1,0 +1,26 @@
+[project]
+name = "lsdb-foundation-model"
+version = "0.1.0"
+description = "Tokenizing large astronomical catalogs (HATS/LSDB, Hugging Face) with AION-1 codecs"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "polymathic-aion>=0.0.2",
+    "torch>=2.4",
+    "datasets>=3.0",
+    "huggingface_hub>=0.24",
+    "safetensors",
+    "numpy",
+    "pyarrow",
+    "tqdm",
+]
+
+[project.optional-dependencies]
+dev = [
+    "jupyter",
+    "matplotlib",
+    "ruff",
+]
+
+[tool.ruff]
+line-length = 100
