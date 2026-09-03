@@ -16,9 +16,7 @@ import json
 import logging
 import os
 import platform
-import queue
 import sys
-import threading
 import time
 from collections.abc import Iterable, Iterator
 from concurrent.futures import Future, ThreadPoolExecutor
@@ -32,8 +30,8 @@ import pyarrow.parquet as pq
 import torch
 from tqdm.auto import tqdm
 
-from . import __version__
-from .catalog import (
+from .. import __version__
+from ..catalog import (
     HatsCatalog,
     Partition,
     atomic_path,
@@ -45,7 +43,8 @@ from .catalog import (
     utc_now,
     write_atomic,
 )
-from .distributed import WorkerContext
+from ..distributed import WorkerContext
+from ..iterutils import prefetch_iter
 from .modalities import ModalitySpec, resolve_modalities
 from .tokenizer import AionTokenizer, CodecManagerLike
 
@@ -101,45 +100,6 @@ def take_rows(batches: Iterable[pa.RecordBatch], max_rows: int | None) -> Iterat
         total += batch.num_rows
         if max_rows is not None and total >= max_rows:
             return
-
-
-def prefetch_iter[T](iterable: Iterable[T], depth: int = 2) -> Iterator[T]:
-    """Iterate ``iterable`` in a background thread, keeping up to ``depth`` items ready.
-
-    Exceptions raised by the producer are re-raised in the consumer; abandoning the
-    consumer stops the producer.
-    """
-    items: queue.Queue = queue.Queue(maxsize=depth)
-    stop = threading.Event()
-    done = object()
-
-    def produce():
-        try:
-            for item in iterable:
-                while not stop.is_set():
-                    try:
-                        items.put(item, timeout=0.1)
-                        break
-                    except queue.Full:
-                        continue
-                if stop.is_set():
-                    return
-            items.put(done)
-        except BaseException as err:  # noqa: BLE001 - forwarded to the consumer
-            items.put(err)
-
-    thread = threading.Thread(target=produce, name="prefetch", daemon=True)
-    thread.start()
-    try:
-        while True:
-            item = items.get()
-            if item is done:
-                return
-            if isinstance(item, BaseException):
-                raise item
-            yield item
-    finally:
-        stop.set()
 
 
 class PartitionFetcher:

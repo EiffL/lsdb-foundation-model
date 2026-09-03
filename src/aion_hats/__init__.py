@@ -9,15 +9,26 @@ The output is again a HATS catalog (same partitions, images replaced by ``tok_im
 that can be opened with ``lsdb`` or loaded with ``datasets``. Run one process per GPU
 (``srun``, ``--num-procs``) to scale out; partitions are sharded by rank and completed
 partitions are skipped on restart.
+
+Layout: ``aion_hats.tokenize`` holds the tokenization pipeline, ``aion_hats.train`` the
+training code (an lsdb data path plus the 4M/AION training loop) and the top-level modules
+(``catalog``, ``arrow_utils``, ``distributed``, ``iterutils``, ``cli``) are shared.
 """
 
 __version__ = "0.1.0"
 
 from .catalog import FinalizeSummary, HatsCatalog, Partition, finalize_catalog, open_catalog
-from .distributed import WorkerContext
-from .modalities import MODALITY_REGISTRY, ModalitySpec, detect_modalities, resolve_modalities
-from .pipeline import RunSummary, tokenize_catalog, tokenize_partition
-from .tokenizer import AionTokenizer, default_device
+from .distributed import WorkerContext, default_device
+from .tokenize import (
+    MODALITY_REGISTRY,
+    AionTokenizer,
+    ModalitySpec,
+    RunSummary,
+    detect_modalities,
+    resolve_modalities,
+    tokenize_catalog,
+    tokenize_partition,
+)
 
 __all__ = [
     "MODALITY_REGISTRY",

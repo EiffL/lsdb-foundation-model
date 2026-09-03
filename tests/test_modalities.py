@@ -1,3 +1,4 @@
+import pyarrow as pa
 import pytest
 import torch
 from aion.modalities import (
@@ -12,7 +13,12 @@ from aion.modalities import (
 from conftest import make_rows
 
 from aion_hats import ModalitySpec, detect_modalities, resolve_modalities
-from aion_hats.modalities import image_batches, normalize_band, scalar_batches, spectrum_batches
+from aion_hats.tokenize.modalities import (
+    image_batches,
+    normalize_band,
+    scalar_batches,
+    spectrum_batches,
+)
 
 
 def test_detect_modalities_uses_catalog_name_and_aion_column_names():
@@ -23,8 +29,9 @@ def test_detect_modalities_uses_catalog_name_and_aion_column_names():
     assert found["spectrum"] is DESISpectrum
     assert found["flux_g"] is LegacySurveyFluxG
     assert found["ebv"] is LegacySurveyEBV
-    assert "z_spec" not in found  # AION's redshift column is called Z
+    assert found["z_spec"] is Z  # MMU spelling of AION's redshift column
     assert {"ra", "dec"} <= set(found)
+    assert {"fiberflux_g", "psfdepth_g", "object_id", "_healpix_29"}.isdisjoint(found)
 
 
 def test_detect_modalities_reads_bands_from_sample_and_skips_ambiguous_spectra():
@@ -93,3 +100,6 @@ def test_adapters_group_rows_and_skip_invalid_ones():
     )
     assert rows.tolist() == [1, 2, 3]  # row 0 is NaN
     assert scalar.value.dtype == torch.float32
+    redshifts = pa.array([0.5, -99.0, None, 1.2, -999.0], pa.float32())  # sentinels mean missing
+    ((rows, z),) = scalar_batches(ModalitySpec(Z, "z_spec"), redshifts, "cpu")
+    assert rows.tolist() == [0, 3] and z.value.tolist() == pytest.approx([0.5, 1.2])

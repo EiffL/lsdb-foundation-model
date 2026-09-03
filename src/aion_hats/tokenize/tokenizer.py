@@ -12,7 +12,8 @@ import pyarrow as pa
 import torch
 from aion.modalities import Modality
 
-from .arrow_utils import tokens_to_arrow
+from ..arrow_utils import tokens_to_arrow
+from ..distributed import default_device
 from .modalities import ModalityBatch, ModalitySpec, build_modality_batches
 
 log = logging.getLogger(__name__)
@@ -24,13 +25,6 @@ class CodecManagerLike(Protocol):
     device: Any
 
     def encode(self, *modalities: Modality) -> dict[str, torch.Tensor]: ...
-
-
-def default_device(local_rank: int = 0) -> torch.device:
-    """``cuda:<local_rank>`` when CUDA is available, else CPU."""
-    if torch.cuda.is_available():
-        return torch.device(f"cuda:{local_rank % torch.cuda.device_count()}")
-    return torch.device("cpu")
 
 
 @dataclass

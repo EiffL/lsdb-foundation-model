@@ -195,7 +195,9 @@ def test_max_rows_and_partition_selection(synthetic_catalog, tmp_path, fake_code
     )
     assert summary.rows == 12 and len(summary.done) == 2  # 10 rows + 2 of the next partition
     assert read_output(output).num_rows == 12
-    assert "tok_ebv" in read_output(output).column_names  # auto picked scalars too
+    columns = read_output(output).column_names  # auto tokenizes every column AION knows
+    assert {"tok_image", "tok_ebv", "tok_flux_g", "tok_z", "tok_ra", "tok_dec"} <= set(columns)
+    assert "image" not in columns and {"z_spec", "ra", "dec", "object_id"} <= set(columns)
 
     summary = tokenize_catalog(
         synthetic_catalog,

@@ -1,0 +1,38 @@
+# Fine-tune the released polymathic-ai/aion-base checkpoint on Legacy Survey image tokens.
+#
+#   uv run aion-hats train -c configs/ls_north_finetune_aion_base.yaml
+#
+# The model config (dim, depth, all 40 modalities) comes from the Hub checkpoint; only the
+# modalities listed under data are used in the batches. Lower learning rate, short warmup.
+model:
+  init_from: polymathic-ai/aion-base
+
+data:
+  datasets:
+    - name: ls_north
+      catalog: ls_north_tokens
+      modalities: [tok_image]
+      split: train
+  eval_datasets:
+    - name: ls_north_val
+      catalog: ls_north_tokens
+      modalities: [tok_image]
+      split: val
+  num_input_tokens: 256
+  num_target_tokens: 128
+  num_workers: 4
+
+optim:
+  blr: 1.0e-5
+  min_blr: 1.0e-7
+  weight_decay: 0.05
+  clip_grad: 1.0
+
+schedule:
+  total_tokens_b: 2
+  warmup_tokens_b: 0.05
+
+run:
+  output_dir: runs/ls_north_finetune
+  batch_size: 128
+  dtype: bfloat16
