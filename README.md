@@ -49,7 +49,7 @@ scalars are kept next to their token.
 
 The same walkthrough as a Colab notebook:
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/astronomy-commons/lsdb-foundation-model/blob/main/notebooks/tokenize_legacysurvey.ipynb)
-(`notebooks/tokenize_legacysurvey.ipynb`, generated with `uv run python scripts/build_notebook.py`).
+(`notebooks/tokenize_legacysurvey.ipynb`).
 
 ## Running the full catalog on several GPUs
 
