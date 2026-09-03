@@ -1,0 +1,55 @@
+# Train an AION-1 "base" transformer from scratch on Legacy Survey image tokens.
+#
+#   uv run aion-hats tokenize UniverseTBD/mmu_ssl_legacysurvey_north ls_north_tokens --modality image
+#   uv run aion-hats train -c configs/ls_north_base.yaml --set data.datasets.0.catalog=ls_north_tokens
+#
+# Hyper-parameters follow the AION-1 runs (256 input / 128 target tokens, AdamW (0.9, 0.95),
+# weight decay 0.05, bf16, cosine schedule with a token-based warmup). The learning rate is
+# blr * global_batch / 256, so it scales with the number of GPUs automatically.
+model:
+  preset: base                 # tiny | small | base | large | xlarge
+  init_from: null              # or polymathic-ai/aion-base (see ls_north_finetune_aion_base.yaml)
+  compile: false
+  act_checkpoint: false
+
+data:
+  datasets:
+    - name: ls_north
+      catalog: ls_north_tokens # tokenized HATS catalog (local path, hf://datasets/... or org/name)
+      modalities: [tok_image]  # AION token keys; use {tok_image: my_column} to rename
+      in_domains: [tok_image]
+      out_domains: [tok_image]
+      input_alphas: 1.0
+      target_alphas: 1.0
+      split: train             # spatial split at HEALPix order 4; null to use every partition
+  eval_datasets:
+    - name: ls_north_val
+      catalog: ls_north_tokens
+      modalities: [tok_image]
+      split: val
+  eval_steps: 50
+  num_input_tokens: 256
+  num_target_tokens: 128
+  num_workers: 4
+  shuffle_buffer: 16384
+
+optim:
+  blr: 1.0e-4
+  min_blr: 1.0e-6
+  weight_decay: 0.05
+  clip_grad: 1.0
+  skip_nan_grad: true
+
+schedule:
+  total_tokens_b: 20           # billions of (input + target) tokens; or set epochs
+  warmup_tokens_b: 0.5
+  steps_per_epoch: null        # default: catalog rows / (batch_size * world_size)
+
+run:
+  output_dir: runs/ls_north_base
+  batch_size: 256              # per process
+  accum_iter: 1
+  dtype: bfloat16
+  save_ckpt_freq: 1
+  print_freq: 50
+  wandb: null                  # {project: aion-hats, entity: ..., mode: offline}

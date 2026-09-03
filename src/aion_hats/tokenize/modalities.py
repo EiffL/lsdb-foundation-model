@@ -29,7 +29,7 @@ from aion.modalities import (
     Spectrum,
 )
 
-from .arrow_utils import group_rows_by_shape, nested_to_numpy, struct_field, valid_mask
+from ..arrow_utils import group_rows_by_shape, nested_to_numpy, struct_field, valid_mask
 
 log = logging.getLogger(__name__)
 
@@ -53,6 +53,13 @@ IMAGE_NAME_HINTS: dict[str, type[Image]] = {
     "decals": LegacySurveyImage,
 }
 SPECTRUM_NAME_HINTS: dict[str, type[Spectrum]] = {"desi": DESISpectrum, "sdss": SDSSSpectrum}
+
+#: Catalog column names (lower case) that hold a scalar modality under a name different
+#: from the one AION declares (``Z.name == "Z"`` but MMU catalogs call it ``z_spec``).
+SCALAR_ALIASES: dict[str, str] = {"z_spec": "z", "zspec": "z", "redshift": "z"}
+
+#: Scalar values that catalogs use to mean "missing"; they are tokenized as nulls.
+MISSING_SENTINELS = (-99.0, -999.0, -9999.0)
 
 #: Struct fields of the MMU image and spectrum columns (name -> accepted aliases).
 IMAGE_FIELDS = {"bands": ("band", "bands"), "flux": ("flux",)}
@@ -253,7 +260,8 @@ def detect_modalities(
     images, from the band labels of ``sample`` (a table, or a callable returning one so
     that no data is read when the name is enough). Scalar columns are matched against the
     column names AION declares for its scalar modalities (``FLUX_G``, ``EBV``, ``Z``,
-    ``g_cmodel_mag``, ...), case-insensitively.
+    ``g_cmodel_mag``, ...), case-insensitively, plus the MMU spellings in
+    :data:`SCALAR_ALIASES` (``z_spec`` -> ``Z``).
 
     Args:
         strict: raise instead of skipping a column whose survey cannot be determined.
@@ -269,7 +277,8 @@ def detect_modalities(
             modality = spectrum_modality_for(catalog_name)
             choices = "DESI or SDSS", "DESISpectrum or SDSSSpectrum"
         elif pa.types.is_floating(field.type) or pa.types.is_integer(field.type):
-            modality = _SCALAR_BY_NAME.get(field.name.lower())
+            name = field.name.lower()
+            modality = _SCALAR_BY_NAME.get(SCALAR_ALIASES.get(name, name))
             if modality is not None:
                 specs.append(ModalitySpec(modality, field.name))
             continue
@@ -421,9 +430,10 @@ def spectrum_batches(spec: ModalitySpec, column: pa.Array, device) -> list[Modal
 
 
 def scalar_batches(spec: ModalitySpec, column: pa.Array, device) -> list[ModalityBatch]:
-    """Build one modality from the finite values of a numeric column."""
+    """Build one modality from the finite, non-sentinel values of a numeric column."""
     values = np.asarray(column.to_numpy(zero_copy_only=False), dtype=np.float32)
-    rows = np.flatnonzero(valid_mask(column) & np.isfinite(values))
+    usable = valid_mask(column) & np.isfinite(values) & ~np.isin(values, MISSING_SENTINELS)
+    rows = np.flatnonzero(usable)
     if rows.size == 0:
         return []
     return [(rows, spec.modality(value=_to_tensor(values[rows], device)))]

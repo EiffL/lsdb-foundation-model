@@ -24,9 +24,12 @@ dev = [
     "matplotlib",
     "ruff",
     "datasets>=3.0",
-    "lsdb",
+    "lsdb>=0.10",
+    "pyyaml",
 ]
-lsdb = ["lsdb"]
+lsdb = ["lsdb>=0.10"]
+train = ["lsdb>=0.10", "pyyaml"]
+wandb = ["wandb"]
 
 [project.scripts]
 aion-hats = "aion_hats.cli:main"

@@ -25,6 +25,14 @@ WORLD_VARS = ("WORLD_SIZE", "SLURM_NTASKS", "OMPI_COMM_WORLD_SIZE", "PMI_SIZE")
 LOCAL_RANK_VARS = ("LOCAL_RANK", "SLURM_LOCALID", "OMPI_COMM_WORLD_LOCAL_RANK", "MPI_LOCALRANKID")
 
 
+def default_device(local_rank: int = 0) -> torch.device:
+    """``cuda:<local_rank>`` when CUDA is available, else CPU."""
+    torch = _torch()
+    if torch.cuda.is_available():
+        return torch.device(f"cuda:{local_rank % torch.cuda.device_count()}")
+    return torch.device("cpu")
+
+
 def env_int(names: tuple[str, ...], default: int) -> int:
     """First of the environment variables ``names`` that is set, as an int."""
     for name in names:
@@ -50,8 +58,6 @@ class WorkerContext:
         world_size: int | None = None,
         device: str | torch.device | None = None,
     ) -> WorkerContext:
-        from .tokenizer import default_device
-
         rank = env_int(RANK_VARS, 0) if rank is None else rank
         world_size = env_int(WORLD_VARS, 1) if world_size is None else world_size
         local_rank = env_int(LOCAL_RANK_VARS, rank)
