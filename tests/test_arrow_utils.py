@@ -27,9 +27,11 @@ def test_group_rows_by_shape_and_dense_conversion():
     assert dense[1, 1, 0] == 9.0
 
 
-def test_tokens_to_arrow_list_and_scalar_with_nulls():
+def test_tokens_to_arrow_nested_and_scalar_with_nulls():
     tokens = np.arange(6).reshape(3, 2)
-    col = tokens_to_arrow(tokens, np.array([True, False, True]), pa.list_(pa.int64()))
-    assert col.to_pylist() == [[0, 1], None, [4, 5]]
+    nested = pa.struct([pa.field("token", pa.list_(pa.int64()))])
+    col = tokens_to_arrow(tokens, np.array([True, False, True]), nested)
+    assert col.type == nested
+    assert col.to_pylist() == [{"token": [0, 1]}, None, {"token": [4, 5]}]
     col = tokens_to_arrow(np.arange(3), np.array([True, False, True]), pa.int32())
     assert col.to_pylist() == [0, None, 2] and col.type == pa.int32()

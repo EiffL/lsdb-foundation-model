@@ -31,7 +31,8 @@ cells = [
         "[AION-1](https://github.com/PolymathicAI/AION) image codec, using the `aion-hats` library\n"
         f"from [`{REPO}`](https://github.com/{REPO}).\n\n"
         "The output is again a HATS catalog with the **same columns as the original catalog, minus\n"
-        "the images, plus a `tok_image` column** of 576 discrete tokens per object. The very same\n"
+        "the images, plus a `tok_image` column** of 576 discrete tokens per object, stored as a\n"
+        "nested column (`struct<token: list<int64>>`) that `lsdb` understands natively. The very same\n"
         "function scales to the whole catalog on a multi-GPU cluster (see the last section).\n\n"
         "For the demo we only process 100 objects and do not push anything to the Hub.\n\n"
         "### Enabling GPU access\n\n"
@@ -88,7 +89,7 @@ cells = [
         "print(tokens.schema)\n"
         "row = tokens.slice(0, 1).to_pylist()[0]\n"
         'print({k: v for k, v in row.items() if k != "tok_image"})\n'
-        'print("tokens:", len(row["tok_image"]), row["tok_image"][:16], "...")'
+        'print("tokens:", len(row["tok_image"]["token"]), row["tok_image"]["token"][:16], "...")'
     ),
     md(
         "The parquet files also load as a regular Hugging Face dataset (the generated `README.md`\n"
@@ -101,9 +102,18 @@ cells = [
     ),
     md(
         "Because the layout is preserved, `lsdb` opens the tokenized catalog like any other HATS\n"
-        "catalog (and could cross-match or join it with the source on `_healpix_29`):"
+        "catalog (and could cross-match or join it with the source on `_healpix_29`). The token\n"
+        "column is recognised as a *nested* column: each object carries a small sub-table with a\n"
+        "`token` column, and `tokenized[\"tok_image.token\"]` flattens it."
     ),
-    code("import lsdb\n\ntokenized = lsdb.open_catalog(OUTPUT)\ntokenized"),
+    code(
+        "import lsdb\n\n"
+        "tokenized = lsdb.open_catalog(OUTPUT)\n"
+        "print(tokenized.dtypes)\n"
+        "df = tokenized.compute()\n"
+        'print(df["tok_image"].iloc[0].head())\n'
+        "df.head(3)"
+    ),
     md(
         "## Step IV: decode the tokens\n\n"
         "The same codec decodes tokens back into a 96x96 cutout, a useful sanity check of what\n"
@@ -112,6 +122,7 @@ cells = [
     ),
     code(
         "import numpy as np\n"
+        "import pyarrow.compute as pc\n"
         "import torch\n"
         "import matplotlib.pyplot as plt\n"
         "from aion.codecs import CodecManager\n"
@@ -120,7 +131,7 @@ cells = [
         "device = default_device()\n"
         "codec_manager = CodecManager(device=device)\n\n"
         'originals = catalog.read_partition(catalog.partitions[0], columns=["object_id", "image"], max_rows=4)\n'
-        'token_batch = torch.as_tensor(np.asarray(tokens.slice(0, 4).column("tok_image").to_pylist()), device=device)\n'
+        'token_batch = torch.as_tensor(np.stack(pc.struct_field(tokens.slice(0, 4).column("tok_image"), "token").to_pylist()), device=device)\n'
         'decoded = codec_manager.decode({LegacySurveyImage.token_key: token_batch}, LegacySurveyImage, bands=["DES-G", "DES-R", "DES-Z"])\n\n'
         "fig, axes = plt.subplots(2, 4, figsize=(12, 6))\n"
         "for k in range(4):\n"

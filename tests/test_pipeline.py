@@ -18,6 +18,7 @@ from aion_hats import (
 from aion_hats.catalog import read_properties
 
 TOTAL_ROWS = sum(PARTITIONS.values())
+NESTED_INT64 = pa.struct([pa.field("token", pa.list_(pa.int64()))])
 
 
 def read_output(output):
@@ -46,10 +47,10 @@ def test_tokenizer_on_table(fake_codecs):
     )
     out = tok.tokenize_table(table, batch_size=2)
     assert "image" not in out.column_names and "flux_g" in out.column_names
-    assert out.schema.field("tok_image").type == pa.list_(pa.int64())
+    assert out.schema.field("tok_image").type == NESTED_INT64
     assert out.schema.field("tok_flux_g").type == pa.int64()
     tokens = out.column("tok_image").to_pylist()
-    assert tokens[1] is None and len(tokens[0]) == LegacySurveyImage.num_tokens
+    assert tokens[1] is None and len(tokens[0]["token"]) == LegacySurveyImage.num_tokens
     assert out.column("tok_flux_g").to_pylist()[0] is None  # NaN input
     # deterministic and independent of batching
     again = tok.tokenize_table(table, batch_size=5)
@@ -87,8 +88,8 @@ def test_tokenize_catalog_end_to_end(synthetic_catalog, tmp_path, fake_codecs):
         "tok_flux_g",
         "tok_spectrum_desi",
     }
-    assert table.column("tok_spectrum_desi").type == pa.list_(pa.int64())
-    assert all(len(t) == 273 for t in table.column("tok_spectrum_desi").to_pylist())
+    assert table.column("tok_spectrum_desi").type == NESTED_INT64
+    assert all(len(t["token"]) == 273 for t in table.column("tok_spectrum_desi").to_pylist())
 
     # finalize products
     assert (output / "partition_info.csv").read_text().splitlines()[0] == "Norder,Npix"
@@ -112,7 +113,8 @@ def test_tokenize_catalog_end_to_end(synthetic_catalog, tmp_path, fake_codecs):
     lsdb = pytest.importorskip("lsdb")
     cat = lsdb.open_catalog(output)
     df = cat.compute()
-    assert len(df) == TOTAL_ROWS and "tok_image" in df.columns
+    assert len(df) == TOTAL_ROWS and str(df.dtypes["tok_image"]) == "nested<token: [int64]>"
+    assert df["tok_image.token"].shape[0] == (TOTAL_ROWS - 3) * LegacySurveyImage.num_tokens
 
     # re-running skips everything; overwrite redoes it
     before = fake_codecs.calls[:]
@@ -279,5 +281,7 @@ def test_cli(synthetic_catalog, tmp_path, fake_codecs, monkeypatch, capsys):
         ]
     )
     assert code == 0 and (output / "partition_info.csv").exists()
-    assert read_output(output).column("tok_image").type == pa.list_(pa.int32())
+    assert read_output(output).column("tok_image").type == pa.struct(
+        [pa.field("token", pa.list_(pa.int32()))]
+    )
     assert cli.main(["finalize", str(output)]) == 0

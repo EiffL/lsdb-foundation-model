@@ -36,6 +36,11 @@ log = logging.getLogger(__name__)
 #: Minimum image side (in pixels) the AION image codec can center-crop to.
 IMAGE_MIN_SIZE = 96
 
+#: Field name of the token list inside a multi-token output column. Such a column is a
+#: ``struct<token: list<int>>``, which LSDB / nested-pandas load as a nested column
+#: (``nested<token: [int64]>``), i.e. one sub-table of tokens per object.
+TOKEN_FIELD = "token"
+
 #: AION band label prefix of each image modality (``DES-G``, ``HSC-G``, ...).
 SURVEY_PREFIX: dict[type[Image], str] = {LegacySurveyImage: "DES", HSCImage: "HSC"}
 _IMAGE_BY_PREFIX = {prefix: modality for modality, prefix in SURVEY_PREFIX.items()}
@@ -112,7 +117,8 @@ class ModalitySpec:
         modality: the AION modality class, e.g. ``LegacySurveyImage``.
         column: the catalog column holding the raw data.
         token_column: name of the output column; defaults to the modality's AION token
-            key (``tok_image``, ``tok_flux_g``, ...).
+            key (``tok_image``, ``tok_flux_g``, ...). Single-token modalities produce a
+            plain integer column, the others a nested ``struct<token: list<int>>`` column.
         drop_source: whether to remove ``column`` from the output. Defaults to ``True``
             for images and spectra (the bulky columns) and ``False`` for scalars.
     """
@@ -144,7 +150,9 @@ class ModalitySpec:
 
     def arrow_type(self, token_dtype: np.dtype) -> pa.DataType:
         scalar = pa.from_numpy_dtype(token_dtype)
-        return scalar if self.num_tokens == 1 else pa.list_(scalar)
+        if self.num_tokens == 1:
+            return scalar
+        return pa.struct([pa.field(TOKEN_FIELD, pa.list_(scalar))])
 
     def to_dict(self) -> dict[str, Any]:
         return {

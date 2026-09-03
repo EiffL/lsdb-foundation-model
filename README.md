@@ -11,8 +11,11 @@ HATS catalog into a HATS catalog of AION tokens:
   or behind any fsspec URL.
 - **Output**: the same partitions (`Norder=k/Dir=d/Npix=p.parquet`), with the raw modality columns
   (images, spectra) replaced by token columns named after AION's token keys (`tok_image`,
-  `tok_spectrum_desi`, `tok_flux_g`, ...). Every other column is kept, so the result opens with
-  [`lsdb`](https://lsdb.io) and joins back to its source on `_healpix_29` / `object_id`. It also
+  `tok_spectrum_desi`, `tok_flux_g`, ...). Multi-token columns are stored as
+  `struct<token: list<int64>>`, which [`lsdb`](https://lsdb.io) loads as a nested column
+  (`nested<token: [int64]>`, i.e. `df["tok_image.token"]`); single-token scalars are plain
+  integers, and missing inputs become nulls. Every other column is kept, so the result opens with
+  `lsdb` and joins back to its source on `_healpix_29` / `object_id`. It also
   loads with `datasets.load_dataset("parquet", data_files=".../dataset/**/*.parquet")` and can be uploaded to the
   Hub as is (a `README.md` with the dataset config is generated).
 - **Scale-out**: partitions are the unit of work. Workers take a round-robin share, need no

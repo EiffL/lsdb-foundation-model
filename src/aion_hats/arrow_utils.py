@@ -89,12 +89,15 @@ def group_rows_by_shape(
 def tokens_to_arrow(tokens: np.ndarray, valid: np.ndarray, arrow_type: pa.DataType) -> pa.Array:
     """Build the Arrow column for a block of ``(n_rows, n_tokens)`` tokens.
 
-    A list column is produced when ``arrow_type`` is a list type, a plain integer column
-    otherwise (``n_tokens`` must then be 1). Rows where ``valid`` is ``False`` become nulls.
+    ``arrow_type`` is either a plain integer type (``n_tokens`` must then be 1) or a
+    struct with one list field, the nested layout LSDB recognises. Rows where ``valid``
+    is ``False`` become nulls.
     """
     null = ~np.asarray(valid, dtype=bool)
-    if pa.types.is_list(arrow_type):
-        values = pa.array(np.ascontiguousarray(tokens).ravel(), type=arrow_type.value_type)
-        fixed = pa.FixedSizeListArray.from_arrays(values, tokens.shape[1], mask=pa.array(null))
-        return fixed.cast(arrow_type)
+    if pa.types.is_struct(arrow_type):
+        field = arrow_type.field(0)
+        values = pa.array(np.ascontiguousarray(tokens).ravel(), type=field.type.value_type)
+        mask = pa.array(null)
+        lists = pa.FixedSizeListArray.from_arrays(values, tokens.shape[1], mask=mask)
+        return pa.StructArray.from_arrays([lists.cast(field.type)], [field.name], mask=mask)
     return pa.array(tokens.reshape(len(null)), type=arrow_type, mask=null)
