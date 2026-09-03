@@ -98,8 +98,8 @@ class HatsTokenDataset(IterableDataset):
         seed: base seed; every (rank, worker, epoch) derives its own.
         rank, world_size: data-parallel shard of this process; DataLoader workers further
             split the rank's share.
-        drop_nulls: ``"any"`` drops rows missing any modality; ``"all"`` keeps rows with at
-            least one modality (missing ones are fully masked placeholders).
+        drop_nulls: ``"all"`` keeps rows with at least one modality (missing ones become
+            fully masked placeholders); ``"any"`` drops rows missing any modality.
         start_epoch: epoch of the first pass (resume); ``infinite`` keeps cycling epochs.
         prefetch, max_retries: forwarded to :class:`PartitionStream`.
     """
@@ -117,7 +117,7 @@ class HatsTokenDataset(IterableDataset):
         shuffle_buffer: int = 16384,
         rank: int = 0,
         world_size: int = 1,
-        drop_nulls: str = "any",
+        drop_nulls: str = "all",
         start_epoch: int = 0,
         infinite: bool = True,
         prefetch: int = 1,

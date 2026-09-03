@@ -22,6 +22,7 @@ data:
       input_alphas: 1.0
       target_alphas: 1.0
       split: train             # spatial split at HEALPix order 4; null to use every partition
+      drop_nulls: all          # keep objects missing some modalities (masked out); "any" drops them
   eval_datasets:
     - name: ls_north_val
       catalog: ls_north_tokens

@@ -38,7 +38,7 @@ def _rows(dataset):
 
 
 def test_dataset_yields_valid_rows_once_per_epoch(tokenized_catalog):
-    both = HatsTokenDataset(tokenized_catalog, MODALITIES, None, infinite=False, shuffle_buffer=4)
+    both = HatsTokenDataset(tokenized_catalog, MODALITIES, None, infinite=False, shuffle_buffer=4, drop_nulls="any")
     rows = _rows(both)
     assert len(rows) == TOTAL_ROWS - 2 * N_PARTITIONS  # rows with both modalities present
     assert all(len(r["tok_image"]) == 576 and len(r["tok_flux_g"]) == 1 for r in rows)

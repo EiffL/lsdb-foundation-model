@@ -194,6 +194,7 @@ class Trainer:
             masker,
             split=spec.split,
             filter=spec.filter,
+            drop_nulls=spec.drop_nulls,
             shuffle=cfg.data.shuffle,
             seed=cfg.run.seed,
             shuffle_buffer=cfg.data.shuffle_buffer,

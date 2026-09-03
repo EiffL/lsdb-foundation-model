@@ -30,8 +30,11 @@ class DatasetSpec:
     weight: float = 1.0
     filter: dict[str, Any] | None = None
     split: str | None = None
+    drop_nulls: str = "all"
 
     def __post_init__(self) -> None:
+        if self.drop_nulls not in ("any", "all"):
+            raise ValueError(f"dataset {self.name!r}: drop_nulls must be 'any' or 'all'")
         if isinstance(self.modalities, (list, tuple)):
             self.modalities = {str(m): str(m) for m in self.modalities}
         if self.in_domains is None:

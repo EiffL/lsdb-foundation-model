@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "colab-operator": {
+      "source": "googlecolab/google-colab-cli",
+      "sourceType": "github",
+      "skillPath": "skills/colab-operator/SKILL.md",
+      "computedHash": "e687812cde5980a8498847d76da9b8be1318f86fdd6a64885c67771bebd64d4f"
+    }
+  }
+}
