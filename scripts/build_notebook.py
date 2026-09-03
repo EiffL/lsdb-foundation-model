@@ -1,29 +1,17 @@
-"""Generate notebooks/tokenize_legacysurvey.ipynb from scripts/tokenize_legacysurvey.py.
+"""Generate notebooks/tokenize_legacysurvey.ipynb, the Colab demo of the aion-hats library.
 
-The notebook is a Colab-friendly walkthrough whose code cells are the functions of
-the script, extracted verbatim with ``inspect.getsource`` so the two never drift.
-
-    uv run python scripts/build_notebook.py
+uv run python scripts/build_notebook.py
 """
 
 from __future__ import annotations
 
-import inspect
-import sys
 from pathlib import Path
 
 import nbformat
 
-sys.path.insert(0, str(Path(__file__).parent))
-import tokenize_legacysurvey as tk
-
 REPO = "astronomy-commons/lsdb-foundation-model"
+DATASET_ID = "UniverseTBD/mmu_ssl_legacysurvey_north"
 NOTEBOOK = Path(__file__).parents[1] / "notebooks" / "tokenize_legacysurvey.ipynb"
-
-
-def src(*objs) -> str:
-    return "\n\n".join(inspect.getsource(o) for o in objs)
-
 
 md = nbformat.v4.new_markdown_cell
 code = nbformat.v4.new_code_cell
@@ -36,114 +24,130 @@ cells = [
     ),
     md(
         "# Tokenizing Legacy Survey images with AION-1\n\n"
-        "This notebook streams galaxy cutouts from the\n"
-        f"[`{tk.DATASET_ID}`](https://huggingface.co/datasets/{tk.DATASET_ID}) Hugging Face dataset\n"
-        "(the northern Legacy Surveys DR9 sample from the Multimodal Universe, 14M objects with\n"
-        "g, r, z cutouts of 152x152 pixels), encodes each image into discrete tokens with the\n"
-        "[AION-1](https://github.com/PolymathicAI/AION) image codec, and writes the result as a\n"
-        "parquet Hugging Face dataset with the **same columns as the original catalog, minus the\n"
-        "images, plus an `image_tokens` column**.\n\n"
-        "The code below is the content of\n"
-        f"[`scripts/tokenize_legacysurvey.py`](https://github.com/{REPO}/blob/main/scripts/"
-        "tokenize_legacysurvey.py) in this repository; the notebook is generated from it.\n\n"
+        "This notebook tokenizes galaxy cutouts from the\n"
+        f"[`{DATASET_ID}`](https://huggingface.co/datasets/{DATASET_ID}) Hugging Face dataset\n"
+        "(the northern Legacy Surveys DR9 sample of the Multimodal Universe: 14M objects with\n"
+        "g, r, z cutouts, stored as a HATS catalog) with the\n"
+        "[AION-1](https://github.com/PolymathicAI/AION) image codec, using the `aion-hats` library\n"
+        f"from [`{REPO}`](https://github.com/{REPO}).\n\n"
+        "The output is again a HATS catalog with the **same columns as the original catalog, minus\n"
+        "the images, plus a `tok_image` column** of 576 discrete tokens per object. The very same\n"
+        "function scales to the whole catalog on a multi-GPU cluster (see the last section).\n\n"
         "For the demo we only process 100 objects and do not push anything to the Hub.\n\n"
         "### Enabling GPU access\n\n"
         "The codec runs on CPU too, but on Colab go to `Runtime > Change runtime type` and select a\n"
         "GPU to speed things up.\n\n"
         "### Installing dependencies"
     ),
-    code("!pip install --quiet --upgrade polymathic-aion datasets huggingface_hub pyarrow"),
+    code(f"!pip install --quiet git+https://github.com/{REPO}.git lsdb matplotlib"),
     md(
-        "## Step I: the tokenization function\n\n"
-        "A batch of cutouts is a `(batch, bands, height, width)` array of fluxes in nanomaggies.\n"
-        "We wrap it in AION's `LegacySurveyImage` modality, which tells the codec which survey\n"
-        "and bands the pixels come from (the codec knows how to handle a missing `i` band), and\n"
-        "the `CodecManager` downloads the image codec and turns each cutout into\n"
-        f"{tk.NUM_IMAGE_TOKENS} integer tokens (a 24x24 grid over the central 96x96 pixels)."
+        "## Step I: open the catalog\n\n"
+        "`open_catalog` reads the HATS metadata (`hats.properties`, `partition_info.csv`, the\n"
+        "parquet schema) without downloading any data. The catalog is made of ~11,000 HEALPix\n"
+        "partitions of up to 8192 objects each; those partitions are the unit of work of the\n"
+        "tokenizer. `detect_modalities` lists the columns AION has a codec for: the `image` struct\n"
+        "(bands + flux) maps to `LegacySurveyImage`, and scalar columns are matched to AION's\n"
+        "scalar modalities by name (`flux_g`, `ebv`, ...)."
     ),
     code(
-        "import json\n"
-        "import time\n"
-        "from collections.abc import Iterable, Iterator\n"
-        "from pathlib import Path\n\n"
+        "from aion_hats import open_catalog, detect_modalities\n\n"
+        f'SOURCE = "{DATASET_ID}"\n\n'
+        "catalog = open_catalog(SOURCE)\n"
+        "print(catalog)\n"
+        "print(f\"{catalog.properties['hats_nrows']} rows, orders {sorted({p.order for p in catalog.partitions})}\")\n"
+        "print(catalog.schema)\n\n"
+        "for spec in detect_modalities(catalog.schema, catalog_name=catalog.name, sample=lambda: catalog.sample(2)):\n"
+        "    print(spec)"
+    ),
+    md(
+        "## Step II: tokenize\n\n"
+        "`tokenize_catalog` streams the rows of each partition in batches, wraps the cutouts in\n"
+        "AION's `LegacySurveyImage` modality (the codec knows the survey and the bands, and handles\n"
+        "the missing `i` band), encodes them into 576 tokens (a 24x24 grid over the central 96x96\n"
+        "pixels) and writes the tokenized partition next to the untouched columns.\n\n"
+        'We only ask for the `image` column (`modalities="auto"` would also tokenize `flux_g`,\n'
+        "`ebv`, ... into `tok_flux_g`, `tok_ebv`, ...), and stop after 100 objects, in which case\n"
+        "only the needed row groups of the first partition are streamed from the Hub."
+    ),
+    code(
+        "from aion_hats import tokenize_catalog\n\n"
+        'OUTPUT = "tokenized_demo"\n\n'
+        'summary = tokenize_catalog(SOURCE, OUTPUT, modalities=["image"], max_rows=100, batch_size=32)\n'
+        "print(summary)"
+    ),
+    md(
+        "## Step III: look at the result\n\n"
+        "The output directory is a HATS catalog: `hats.properties`, `partition_info.csv` and a\n"
+        "`dataset/` tree of parquet partitions. `aion_hats.json` records the provenance (source,\n"
+        "modalities, codec and library versions)."
+    ),
+    code(
+        "import pyarrow.dataset as ds\n\n"
+        "!find $OUTPUT -type f | sort\n\n"
+        'tokens = ds.dataset(f"{OUTPUT}/dataset", format="parquet", exclude_invalid_files=True).to_table()\n'
+        "print(tokens.schema)\n"
+        "row = tokens.slice(0, 1).to_pylist()[0]\n"
+        'print({k: v for k, v in row.items() if k != "tok_image"})\n'
+        'print("tokens:", len(row["tok_image"]), row["tok_image"][:16], "...")'
+    ),
+    md(
+        "The parquet files also load as a regular Hugging Face dataset (the generated `README.md`\n"
+        "carries the matching `data_files` config for when the folder is uploaded to the Hub):"
+    ),
+    code(
+        "from datasets import load_dataset\n\n"
+        'hf_dataset = load_dataset("parquet", data_files=f"{OUTPUT}/dataset/**/*.parquet", split="train")\n'
+        "print(hf_dataset)"
+    ),
+    md(
+        "Because the layout is preserved, `lsdb` opens the tokenized catalog like any other HATS\n"
+        "catalog (and could cross-match or join it with the source on `_healpix_29`):"
+    ),
+    code("import lsdb\n\ntokenized = lsdb.open_catalog(OUTPUT)\ntokenized"),
+    md(
+        "## Step IV: decode the tokens\n\n"
+        "The same codec decodes tokens back into a 96x96 cutout, a useful sanity check of what\n"
+        "information the tokenization retains. We read the original images of the first four\n"
+        "objects directly from the source partition for comparison."
+    ),
+    code(
         "import numpy as np\n"
-        "import pyarrow as pa\n"
-        "import pyarrow.parquet as pq\n"
         "import torch\n"
+        "import matplotlib.pyplot as plt\n"
         "from aion.codecs import CodecManager\n"
         "from aion.modalities import LegacySurveyImage\n"
-        "from datasets import Features, IterableDataset, Value, load_dataset\n"
-        "from tqdm.auto import tqdm\n\n"
-        f'DATASET_ID = "{tk.DATASET_ID}"\n'
-        f'IMAGE_COLUMN = "{tk.IMAGE_COLUMN}"\n'
-        f'TOKEN_COLUMN = "{tk.TOKEN_COLUMN}"\n'
-        "NUM_IMAGE_TOKENS = LegacySurveyImage.num_tokens  # 576 = 24 x 24 tokens per cutout\n\n"
-        + src(tk._default_device, tk._aion_band_name, tk.tokenize_images)
-    ),
-    md(
-        "## Step II: streaming the catalog\n\n"
-        "The dataset is 3.4 TiB, so we open it in streaming mode: only the parquet row groups we\n"
-        "actually consume get downloaded. Each streamed batch is a column-oriented dict; we drop\n"
-        "the `image` column, tokenize it, and pass every other column through untouched."
-    ),
-    code(src(tk.open_dataset, tk.tokenize_batch, tk.tokenize_dataset)),
-    md(
-        "## Step III: writing a parquet Hugging Face dataset\n\n"
-        "The output features are the input ones without `image`, plus `image_tokens`. The features\n"
-        "are embedded in the parquet metadata so `load_dataset` recovers the exact schema."
-    ),
-    code(src(tk.output_features, tk._batch_to_table, tk.write_parquet)),
-    md("## Step IV: run it on 100 objects"),
-    code(
-        "MAX_OBJECTS = 100\n"
-        "BATCH_SIZE = 32\n"
-        'OUTPUT_DIR = "tokenized_demo"\n\n'
-        "device = _default_device()\n"
-        'print(f"Running image codec on {device}")\n\n'
-        "codec_manager = CodecManager(device=device)\n"
-        "ds = open_dataset(DATASET_ID)\n"
-        "features = output_features(ds.features)\n"
-        "print(features)\n\n"
-        "start = time.time()\n"
-        "batches = tokenize_dataset(ds, codec_manager, batch_size=BATCH_SIZE, max_objects=MAX_OBJECTS, device=device)\n"
-        "path = write_parquet(batches, features, OUTPUT_DIR)\n"
-        'print(f"Done in {time.time() - start:.1f}s")'
-    ),
-    md(
-        "## Step V: check the result\n\n"
-        "Reload the parquet file as a regular Hugging Face dataset and look at a row."
-    ),
-    code(
-        'tokenized = load_dataset("parquet", data_files=str(path), split="train")\n'
-        "print(tokenized)\n"
-        "row = tokenized[0]\n"
-        "print({k: v for k, v in row.items() if k != TOKEN_COLUMN})\n"
-        'print("tokens:", len(row[TOKEN_COLUMN]), row[TOKEN_COLUMN][:16], "...")'
-    ),
-    md(
-        "The tokens can be decoded back into a 96x96 cutout with the same codec, which is a\n"
-        "useful sanity check of what information the tokenization retains."
-    ),
-    code(
-        "import matplotlib.pyplot as plt\n\n"
-        'bands = ["DES-G", "DES-R", "DES-Z"]\n'
-        "tokens = torch.as_tensor(np.asarray(tokenized[:4][TOKEN_COLUMN]), device=device)\n"
-        "reconstructed = codec_manager.decode({LegacySurveyImage.token_key: tokens}, LegacySurveyImage, bands=bands)\n\n"
+        "from aion_hats import default_device\n\n"
+        "device = default_device()\n"
+        "codec_manager = CodecManager(device=device)\n\n"
+        'originals = catalog.read_partition(catalog.partitions[0], columns=["object_id", "image"], max_rows=4)\n'
+        'token_batch = torch.as_tensor(np.asarray(tokens.slice(0, 4).column("tok_image").to_pylist()), device=device)\n'
+        'decoded = codec_manager.decode({LegacySurveyImage.token_key: token_batch}, LegacySurveyImage, bands=["DES-G", "DES-R", "DES-Z"])\n\n'
         "fig, axes = plt.subplots(2, 4, figsize=(12, 6))\n"
         "for k in range(4):\n"
-        '    original = next(iter(ds.skip(k).take(1)))["image"]["flux"]\n'
-        '    axes[0, k].imshow(np.asarray(original)[1, 28:-28, 28:-28], cmap="gray")\n'
-        "    axes[0, k].set_title(f\"{tokenized[k]['object_id']} (r, input)\")\n"
-        '    axes[1, k].imshow(reconstructed.flux[k, 1].cpu().numpy(), cmap="gray")\n'
+        '    flux = np.asarray(originals.column("image")[k]["flux"].as_py())\n'
+        '    axes[0, k].imshow(flux[1, 28:-28, 28:-28], cmap="gray")\n'
+        "    axes[0, k].set_title(f\"{originals.column('object_id')[k]} (r, input)\")\n"
+        '    axes[1, k].imshow(decoded.flux[k, 1].cpu().numpy(), cmap="gray")\n'
         '    axes[1, k].set_title("decoded from tokens")\n'
         "for ax in axes.ravel():\n"
         '    ax.axis("off")'
     ),
     md(
-        "## Next steps\n\n"
-        "- Remove `max_objects` to tokenize the full catalog (14M objects; use a GPU and a large\n"
-        "  batch size, and shard the output).\n"
-        "- Push the parquet directory to the Hub with `huggingface_hub.HfApi().upload_folder`."
+        "## Scaling up\n\n"
+        "The full catalog is 14M objects in 3.4 TiB of parquet. The same `tokenize_catalog` call\n"
+        "(or the `aion-hats tokenize` command) does the whole job: without `max_rows`, each worker\n"
+        "downloads its partitions in the background, tokenizes them, writes each one atomically and\n"
+        "skips partitions that already exist, so a job resumes by re-running it. Workers take their\n"
+        "rank and GPU from the environment (`SLURM_PROCID`, `RANK`, ...), so on a SLURM cluster such\n"
+        "as Perlmutter one process per GPU is:\n\n"
+        "```bash\n"
+        "#SBATCH -C gpu -N 4 --ntasks-per-node=4 --gpus-per-task=1\n"
+        f"srun aion-hats tokenize {DATASET_ID} $SCRATCH/ls_north_tokens --modality image \\\n"
+        "    --batch-size 256 --cache-dir $SCRATCH/stage --num-prefetch 2\n"
+        "aion-hats finalize $SCRATCH/ls_north_tokens   # once, after all workers are done\n"
+        "```\n\n"
+        "On a single multi-GPU machine, `--num-procs 4` spawns one worker per GPU. The finalized\n"
+        "folder is ready for `huggingface_hub.HfApi().upload_folder(...)` (not done here)."
     ),
 ]
 
